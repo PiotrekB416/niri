@@ -3,6 +3,7 @@ use std::iter::{self, zip};
 use std::rc::Rc;
 use std::time::Duration;
 
+use anyhow::Chain;
 use niri_config::{CenterFocusedColumn, PresetWidth, Struts};
 use niri_ipc::SizeChange;
 use smithay::backend::renderer::gles::GlesRenderer;
@@ -14,15 +15,15 @@ use smithay::utils::{Logical, Point, Rectangle, Scale, Size};
 use smithay::wayland::compositor::send_surface_state;
 
 use super::closing_window::{ClosingWindow, ClosingWindowRenderElement};
-use super::tile::{Tile, TileRenderElement};
+use super::tile::{self, Tile, TileRenderElement};
 use super::{LayoutElement, Options};
 use crate::animation::Animation;
-use crate::niri_render_elements;
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::RenderTarget;
 use crate::swipe_tracker::SwipeTracker;
 use crate::utils::id::IdCounter;
 use crate::utils::output_size;
+use crate::{niri_render_elements, window};
 
 /// Amount of touchpad movement to scroll the view for the width of one working area.
 const VIEW_GESTURE_WORKING_AREA_MOVEMENT: f64 = 1200.;
@@ -204,6 +205,9 @@ pub struct Column<W: LayoutElement> {
 
     /// Configurable properties of the layout.
     options: Rc<Options>,
+
+    /// Is the column a floating layer
+    floating: bool,
 }
 
 impl OutputId {
@@ -1655,21 +1659,35 @@ impl<W: LayoutElement> Workspace<W> {
     fn tiles_in_render_order(&self) -> impl Iterator<Item = (&'_ Tile<W>, Point<i32, Logical>)> {
         let view_pos = self.view_pos();
 
-        // Start with the active window since it's drawn on top.
-        let col = &self.columns[self.active_column_idx];
-        let tile = &col.tiles[col.active_tile_idx];
-        let tile_pos = Point::from((-self.view_offset, col.tile_y(col.active_tile_idx)))
-            + col.render_offset()
-            + tile.render_offset();
-        let first = iter::once((tile, tile_pos));
+        let floating_idx = self.columns.iter().position(|x| x.floating);
 
-        // Next, the rest of the tiles in the active column, since it should be drawn on top as a
-        // whole during animations.
-        let next =
-            zip(&col.tiles, col.tile_ys())
-                .enumerate()
-                .filter_map(move |(tile_idx, (tile, y))| {
-                    if tile_idx == col.active_tile_idx {
+        let floating = self
+            .columns
+            .iter()
+            .enumerate()
+            .filter(move |(i, x)| Some(*i) == floating_idx)
+            .flat_map(|(_, column)| {
+                column
+                    .tiles
+                    .iter()
+                    .map(|tile| (tile, tile.get_position().unwrap_or(tile.render_offset())))
+            });
+
+        // Start with the active window since it's drawn on top.
+        let active = {
+            let col = &self.columns[self.active_column_idx];
+            let tile = &col.tiles[col.active_tile_idx];
+            let tile_pos = Point::from((-self.view_offset, col.tile_y(col.active_tile_idx)))
+                + col.render_offset()
+                + tile.render_offset();
+            let idx = self.active_column_idx;
+            let first = iter::once((tile, tile_pos)).filter(move |_| Some(idx) != floating_idx);
+
+            // Next, the rest of the tiles in the active column, since it should be drawn on top
+            // as a whole during animations.
+            let next = zip(&col.tiles, col.tile_ys()).enumerate().filter_map(
+                move |(tile_idx, (tile, y))| {
+                    if tile_idx == col.active_tile_idx || Some(self.active_column_idx) == floating_idx {
                         // Active tile comes first.
                         return None;
                     }
@@ -1678,20 +1696,24 @@ impl<W: LayoutElement> Workspace<W> {
                         + col.render_offset()
                         + tile.render_offset();
                     Some((tile, tile_pos))
-                });
+                },
+            );
+
+            first.chain(next)
+        };
 
         let mut x = -view_pos;
         let rest = self
             .columns
             .iter()
-            .enumerate()
+            .enumerate().filter(move |(col_idx, _)| Some(*col_idx) != floating_idx)
             // Keep track of column X position.
             .map(move |(col_idx, col)| {
                 let rv = (col_idx, col, x);
                 x += col.width() + self.options.gaps;
                 rv
             })
-            .filter_map(|(col_idx, col, x)| {
+            .filter_map(move |(col_idx, col, x)| {
                 if col_idx == self.active_column_idx {
                     // Active column comes before.
                     return None;
@@ -1706,7 +1728,7 @@ impl<W: LayoutElement> Workspace<W> {
                 })
             });
 
-        first.chain(next).chain(rest)
+        floating.chain(active).chain(rest)
     }
 
     fn active_column_ref(&self) -> Option<&Column<W>> {
@@ -2150,6 +2172,40 @@ impl<W: LayoutElement> Workspace<W> {
             }
         }
     }
+
+    pub fn float_window(&mut self) {
+        let column = &self.columns[self.active_column_idx];
+        let floating = column.floating;
+        let active_tile_idx = column.active_tile_idx;
+        let tile = self.remove_tile_by_idx(self.active_column_idx, active_tile_idx, None);
+
+        let window = &tile.window();
+
+        let width = window.size().w;
+        let is_fullscreen = window.is_fullscreen();
+
+        if floating {
+            self.add_tile(tile, true, ColumnWidth::Fixed(width), is_fullscreen, None);
+            return;
+        }
+
+        let idx = self.columns.iter().position(|x| x.floating);
+
+        if idx.is_none() {
+            self.add_tile(tile, true, ColumnWidth::Fixed(width), is_fullscreen, None);
+            self.columns.last_mut().unwrap().floating = true;
+            return;
+        }
+
+        self.add_tile_at(
+            idx.unwrap(),
+            tile,
+            true,
+            ColumnWidth::Fixed(width),
+            is_fullscreen,
+            None,
+        );
+    }
 }
 
 impl<W: LayoutElement> Column<W> {
@@ -2195,6 +2251,7 @@ impl<W: LayoutElement> Column<W> {
             view_size,
             working_area,
             options,
+            floating: false,
         };
 
         let is_pending_fullscreen = tile.window().is_pending_fullscreen();

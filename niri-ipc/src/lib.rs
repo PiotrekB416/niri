@@ -217,6 +217,10 @@ pub enum Action {
     MoveWorkspaceToMonitorUp,
     /// Toggle a debug tint on windows.
     ToggleDebugTint,
+    /// Float focused window.
+    FloatWindow,
+    /// Pin floated window to monitor.
+    PinWindow,
 }
 
 /// Change in window or column size.

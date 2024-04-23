@@ -6,7 +6,7 @@ use std::time::Duration;
 use calloop::timer::{TimeoutAction, Timer};
 use input::event::gesture::GestureEventCoordinates as _;
 use niri_config::{Action, Bind, Binds, Key, Modifiers, Trigger};
-use niri_ipc::LayoutSwitchTarget;
+use niri_ipc::{LayoutSwitchTarget, SizeChange};
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
     GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent as _, GestureSwipeUpdateEvent as _,
@@ -803,6 +803,13 @@ impl State {
                     }
                 }
             }
+
+            Action::FloatWindow => {
+                self.niri.layout.float_window();
+            },
+            Action::PinWindow => {
+               self.niri.layout.pin_window();
+            },
         }
     }
 

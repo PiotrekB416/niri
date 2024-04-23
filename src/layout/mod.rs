@@ -1826,6 +1826,15 @@ impl<W: LayoutElement> Layout<W> {
             }
         }
     }
+
+    pub fn float_window(&mut self) {
+        let Some(monitor) = self.active_monitor() else {
+            return;
+        };
+        monitor.float_window();
+    }
+
+    pub fn pin_window(&mut self) {}
 }
 
 impl<W: LayoutElement> Default for MonitorSet<W> {

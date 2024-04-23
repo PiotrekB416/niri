@@ -63,6 +63,9 @@ pub struct Tile<W: LayoutElement> {
     /// The animation of a tile visually moving vertically.
     move_y_animation: Option<MoveAnimation>,
 
+    /// Floating point options.
+    position: Option<Point<i32, Logical>>,
+
     /// Configurable properties of the layout.
     pub options: Rc<Options>,
 }
@@ -118,6 +121,7 @@ impl<W: LayoutElement> Tile<W> {
             resize_animation: None,
             move_x_animation: None,
             move_y_animation: None,
+            position: None,
             options,
         }
     }
@@ -753,5 +757,13 @@ impl<W: LayoutElement> Tile<W> {
             texture: Default::default(),
             blocked_out_texture: Default::default(),
         })
+    }
+
+    pub fn get_position(&self) -> Option<Point<i32, Logical>> {
+        self.position
+    }
+
+    pub fn set_position(&mut self, position: Point<i32, Logical>) {
+        self.position = Some(position);
     }
 }

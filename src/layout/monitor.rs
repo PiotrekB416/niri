@@ -43,6 +43,8 @@ pub struct Monitor<W: LayoutElement> {
     pub workspace_switch: Option<WorkspaceSwitch>,
     /// Configurable properties of the layout.
     pub options: Rc<Options>,
+    /// FloatingLayer
+    pub floating_layer: Workspace<W>,
 }
 
 #[derive(Debug)]
@@ -90,12 +92,13 @@ impl WorkspaceSwitch {
 impl<W: LayoutElement> Monitor<W> {
     pub fn new(output: Output, workspaces: Vec<Workspace<W>>, options: Rc<Options>) -> Self {
         Self {
-            output,
+            output: output.clone(),
             workspaces,
             active_workspace_idx: 0,
             previous_workspace_id: None,
             workspace_switch: None,
-            options,
+            options: options.clone(),
+            floating_layer: Workspace::new(output.clone(), options.clone()),
         }
     }
 
@@ -885,5 +888,9 @@ impl<W: LayoutElement> Monitor<W> {
         )));
 
         true
+    }
+
+    pub fn float_window(&mut self) {
+        self.active_workspace().float_window();
     }
 }

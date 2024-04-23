@@ -853,6 +853,8 @@ pub enum Action {
     MoveWorkspaceToMonitorRight,
     MoveWorkspaceToMonitorDown,
     MoveWorkspaceToMonitorUp,
+    FloatWindow,
+    PinWindow,
 }
 
 impl From<niri_ipc::Action> for Action {
@@ -924,6 +926,8 @@ impl From<niri_ipc::Action> for Action {
             niri_ipc::Action::MoveWorkspaceToMonitorDown => Self::MoveWorkspaceToMonitorDown,
             niri_ipc::Action::MoveWorkspaceToMonitorUp => Self::MoveWorkspaceToMonitorUp,
             niri_ipc::Action::ToggleDebugTint => Self::ToggleDebugTint,
+            niri_ipc::Action::FloatWindow => Self::FloatWindow,
+            niri_ipc::Action::PinWindow => Self::PinWindow,
         }
     }
 }
