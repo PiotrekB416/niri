@@ -2,11 +2,13 @@ use std::cmp::min;
 use std::rc::Rc;
 use std::time::Duration;
 
+use keyframe::num_traits::ToPrimitive;
 use niri_ipc::SizeChange;
 use smithay::backend::renderer::element::utils::{
     CropRenderElement, Relocate, RelocateRenderElement,
 };
 use smithay::output::Output;
+use smithay::reexports::winit::window::ResizeDirection;
 use smithay::utils::{Logical, Point, Rectangle, Scale};
 
 use super::workspace::{
@@ -43,6 +45,8 @@ pub struct Monitor<W: LayoutElement> {
     pub workspace_switch: Option<WorkspaceSwitch>,
     /// Configurable properties of the layout.
     pub options: Rc<Options>,
+    /// Resizing
+    pub resize: Option<Resize>,
 }
 
 #[derive(Debug)]
@@ -95,6 +99,7 @@ impl<W: LayoutElement> Monitor<W> {
             active_workspace_idx: 0,
             previous_workspace_id: None,
             workspace_switch: None,
+            resize: None,
             options,
         }
     }
@@ -886,4 +891,132 @@ impl<W: LayoutElement> Monitor<W> {
 
         true
     }
+
+    pub fn get_resize_directions(&self) -> Vec<ResizeDirection> {
+        if let Some(resize) = &self.resize {
+            return resize.directions.clone();
+        }
+
+        return vec![];
+    }
+
+    pub fn resize_begin(
+        &mut self,
+        window_pos: Point<f64, Logical>,
+        pos: Point<f64, Logical>,
+    ) -> Vec<ResizeDirection> {
+        if let Some((window, _)) = self.window_under(window_pos) {
+            let (column, tile_idx) = self
+                .active_workspace_ref()
+                .columns
+                .iter()
+                .filter_map(|x| {
+                    let Some(pos) = x.tiles.iter().position(|w| w.window().id() == window.id())
+                    else {
+                        return None;
+                    };
+
+                    Some((x, pos))
+                })
+                .next()
+                .unwrap();
+
+            let mut ret = vec![];
+
+            let width = self.options.border.width;
+
+            if (pos.x - window_pos.x) < 10.0
+                && self.options.gaps + self.options.struts.left as i32
+                    != window_pos.x.to_i32().unwrap_or(-1)
+            {
+                ret.push(ResizeDirection::West);
+            }
+
+            if (window_pos.x + window.size().to_f64().w - pos.x) < 10.0
+                && self.options.gaps + self.options.struts.right as i32
+                    != window_pos.x.to_i32().unwrap_or(self.output.current_mode().unwrap().size.w) + window.size().w
+            {
+                ret.push(ResizeDirection::East);
+            }
+
+            if column.tiles.len() > 1 && (pos.y - window_pos.y) < 10.0 && tile_idx > 0 {
+                ret.push(ResizeDirection::North);
+            }
+
+            if (window_pos.y + window.size().to_f64().h - pos.y) < 10.0
+                && tile_idx < (column.tiles.len() - 1)
+            {
+                ret.push(ResizeDirection::South);
+            }
+
+            if ret.len() == 0 {
+                self.resize = None;
+                return ret;
+            }
+
+            self.resize = Some(Resize {
+                directions: ret.clone(),
+                position: pos,
+            });
+            return ret;
+        }
+
+        return vec![];
+    }
+
+    pub fn resize_update(&mut self, pos: Point<f64, Logical>) {
+        let Some(resize) = &mut self.resize else {
+            return;
+        };
+
+        let resize_pos = resize.position;
+
+//        let monitor_idx = match self.monitor_set {
+//            MonitorSet::Normal { active_monitor_idx, .. } => active_monitor_idx,
+//            MonitorSet::NoOutputs { .. } => return,
+//        };
+
+//        let workspace_idx = self.active_monitor_ref().unwrap().workspaces.iter().position(|w| w.id() == self.active_workspace().unwrap().id()).unwrap();
+
+        let diff = resize_pos - pos;
+
+        // horizontal
+
+        let west = resize.directions.contains(&ResizeDirection::West);
+        let east = resize.directions.contains(&ResizeDirection::East);
+        let north = resize.directions.contains(&ResizeDirection::North);
+        let south = resize.directions.contains(&ResizeDirection::South);
+
+        self.resize = Some(Resize { directions: resize.directions.clone(), position: pos });
+        //let Some(window) = self.window_under(resize_pos).map(|w| w.0) else {return;};
+
+//        let column_idx = self.active_workspace().unwrap().active_column_idx;
+//        let tile_idx = self.active_workspace().unwrap().columns[column_idx].active_tile_idx;
+
+        // left
+        if west && (!east || diff.x < 0.0) {
+            // will do when i fugure out how to move stuff
+        }
+
+        if east && (!west || diff.x > 0.0) {
+
+            let x = -diff.to_i32_round::<i32>().x;
+
+            //let removed = self.remove_window(window.id());
+            self.set_column_width(SizeChange::AdjustFixed(x));
+
+            //self.active_monitor().unwrap().active_workspace().columns[column_idx].tiles[tile_idx].request_tile_size(size, true);
+        }
+
+    }
+
+    pub fn resize_end(&mut self) {
+        self.resize = None;
+    }
+}
+
+#[derive(Debug)]
+pub struct Resize {
+    directions: Vec<ResizeDirection>,
+    position: Point<f64, Logical>
 }

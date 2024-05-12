@@ -26,6 +26,7 @@ use smithay::backend::renderer::element::{
     PrimaryScanoutOutput, RenderElementStates,
 };
 use smithay::backend::renderer::gles::GlesRenderer;
+use smithay::desktop::space::SpaceElement;
 use smithay::desktop::utils::{
     bbox_from_surface_tree, output_update, send_dmabuf_feedback_surface_tree,
     send_frames_surface_tree, surface_presentation_feedback_flags_from_states,
@@ -72,6 +73,7 @@ use smithay::wayland::pointer_constraints::{with_pointer_constraint, PointerCons
 use smithay::wayland::pointer_gestures::PointerGesturesState;
 use smithay::wayland::presentation::PresentationState;
 use smithay::wayland::relative_pointer::RelativePointerManagerState;
+use smithay::wayland::seat::WaylandFocus;
 use smithay::wayland::security_context::SecurityContextState;
 use smithay::wayland::selection::data_device::{set_data_device_selection, DataDeviceState};
 use smithay::wayland::selection::primary_selection::PrimarySelectionState;
@@ -102,14 +104,14 @@ use crate::input::{
     apply_libinput_settings, mods_with_finger_scroll_binds, mods_with_wheel_binds, TabletData,
 };
 use crate::ipc::server::IpcServer;
-use crate::layout::{Layout, LayoutElement as _, MonitorRenderElement};
+use crate::layout::{Layout, LayoutElement, MonitorRenderElement};
 use crate::protocols::foreign_toplevel::{self, ForeignToplevelManagerState};
 use crate::protocols::gamma_control::GammaControlManagerState;
 use crate::protocols::screencopy::{Screencopy, ScreencopyManagerState};
 use crate::pw_utils::{Cast, PipeWire};
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::{
-    render_to_shm, render_to_texture, render_to_vec, shaders, RenderTarget,
+    render_to_shm, render_to_texture, render_to_vec, shaders, surface, RenderTarget,
 };
 use crate::scroll_tracker::ScrollTracker;
 use crate::ui::config_error_notification::ConfigErrorNotification;
@@ -3581,6 +3583,50 @@ impl Niri {
                 self.layout.activate_window(window);
             }
         }
+    }
+
+    pub fn maybe_resize_begin(&mut self, pos: Point<f64, Logical>) {
+        let width = self
+            .layout
+            .active_monitor_ref()
+            .unwrap()
+            .options
+            .border
+            .width as f64;
+
+        let mut surface: Option<_> = None;
+
+        [(0., width), (0., -width), (width, 0.), (-width, 0.)]
+            .iter()
+            .for_each(|x| {
+                let mut p = pos.clone();
+                p.x += x.0;
+                p.y += x.1;
+
+                if let Some(s) = self.surface_under_and_global_space(p).surface.clone() {
+                    surface = Some(s);
+                }
+            });
+
+        let Some(surface) = surface else {
+            return;
+        };
+
+        if !self.window_under(surface.1.to_f64()).unwrap().is_focused()
+            && self
+                .surface_under_and_global_space(pos)
+                .surface
+                .clone()
+                .is_none()
+        {
+            return;
+        }
+
+        let resize = self.layout.resize_begin(surface.1.to_f64(), pos);
+    }
+
+    pub fn end_resize(&mut self) {
+        self.layout.resize_end();
     }
 }
 

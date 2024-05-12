@@ -34,6 +34,7 @@ use std::mem;
 use std::rc::Rc;
 use std::time::Duration;
 
+use keyframe::num_traits::ToPrimitive;
 use niri_config::{CenterFocusedColumn, Config, Struts};
 use niri_ipc::SizeChange;
 use smithay::backend::renderer::element::solid::{SolidColorBuffer, SolidColorRenderElement};
@@ -43,15 +44,16 @@ use smithay::backend::renderer::element::Id;
 use smithay::backend::renderer::gles::{GlesRenderer, GlesTexture};
 use smithay::output::Output;
 use smithay::reexports::wayland_server::protocol::wl_surface::WlSurface;
+use smithay::reexports::winit::window::ResizeDirection;
 use smithay::utils::{Logical, Point, Scale, Size, Transform};
 
 use self::monitor::Monitor;
 pub use self::monitor::MonitorRenderElement;
 use self::workspace::{compute_working_area, Column, ColumnWidth, OutputId, Workspace};
-use crate::niri_render_elements;
+use crate::{niri_render_elements, window};
 use crate::render_helpers::renderer::NiriRenderer;
 use crate::render_helpers::snapshot::RenderSnapshot;
-use crate::render_helpers::{BakedBuffer, RenderTarget};
+use crate::render_helpers::{resize, BakedBuffer, RenderTarget};
 use crate::utils::output_size;
 use crate::window::ResolvedWindowRules;
 
@@ -1825,6 +1827,40 @@ impl<W: LayoutElement> Layout<W> {
                 }
             }
         }
+    }
+
+    pub fn get_resize_directions(&self) -> Vec<ResizeDirection> {
+        match self.active_monitor_ref() {
+            Some(mon) => mon.get_resize_directions(),
+            None => vec![]
+        }
+    }
+
+    pub fn resize_begin(
+        &mut self,
+        window_pos: Point<f64, Logical>,
+        pos: Point<f64, Logical>,
+    ) -> Vec<ResizeDirection> {
+        match self.active_monitor() {
+            Some(mon) => mon.resize_begin(window_pos, pos),
+            None => vec![]
+        }
+    }
+
+    pub fn resize_update(&mut self, pos: Point<f64, Logical>) {
+        let Some(monitor) = self.active_monitor() else {
+            return;
+        };
+
+        monitor.resize_update(pos);
+    }
+
+    pub fn resize_end(&mut self) {
+        let Some(monitor) = self.active_monitor() else {
+            return;
+        };
+
+        monitor.resize_end();
     }
 }
 

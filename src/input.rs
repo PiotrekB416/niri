@@ -10,8 +10,8 @@ use niri_ipc::LayoutSwitchTarget;
 use smithay::backend::input::{
     AbsolutePositionEvent, Axis, AxisSource, ButtonState, Device, DeviceCapability, Event,
     GestureBeginEvent, GestureEndEvent, GesturePinchUpdateEvent as _, GestureSwipeUpdateEvent as _,
-    InputBackend, InputEvent, KeyState, KeyboardKeyEvent, PointerAxisEvent, PointerButtonEvent,
-    PointerMotionEvent, ProximityState, TabletToolButtonEvent, TabletToolEvent,
+    InputBackend, InputEvent, KeyState, KeyboardKeyEvent, MouseButton, PointerAxisEvent,
+    PointerButtonEvent, PointerMotionEvent, ProximityState, TabletToolButtonEvent, TabletToolEvent,
     TabletToolProximityEvent, TabletToolTipEvent, TabletToolTipState, TouchEvent,
 };
 use smithay::backend::libinput::LibinputInputBackend;
@@ -1002,6 +1002,13 @@ impl State {
 
         let pointer = self.niri.seat.get_pointer().unwrap();
 
+        if self.niri.layout.get_resize_directions().len() != 0 {
+            println!("here");
+            self.niri.layout.resize_update(pos);
+        } else {
+            //self.niri.maybe_show_resize_cursor(pos);
+        }
+
         if let Some(output) = self.niri.screenshot_ui.selection_output() {
             let geom = self.niri.global_space.output_geometry(output).unwrap();
             let mut point = pos;
@@ -1020,6 +1027,7 @@ impl State {
         let under = self.niri.surface_under_and_global_space(pos);
 
         self.niri.handle_focus_follows_mouse(&under);
+
 
         self.niri.maybe_activate_pointer_constraint(pos, &under);
         self.niri.pointer_focus.clone_from(&under);
@@ -1060,7 +1068,7 @@ impl State {
             if let Some(mapped) = self.niri.window_under_cursor() {
                 let window = mapped.window.clone();
                 self.niri.layout.activate_window(&window);
-
+                //self.niri.enter_resize();
                 // FIXME: granular.
                 self.niri.queue_redraw_all();
             } else if let Some(output) = self.niri.output_under_cursor() {
@@ -1069,7 +1077,9 @@ impl State {
                 // FIXME: granular.
                 self.niri.queue_redraw_all();
             }
-        };
+        } else {
+            self.niri.end_resize();
+        }
 
         self.update_pointer_focus();
 
@@ -1097,6 +1107,9 @@ impl State {
                 {
                     self.niri.queue_redraw_all();
                 }
+            }
+            if button == MouseButton::Left && button_state == ButtonState::Pressed {
+                self.niri.maybe_resize_begin(pos);
             }
         }
 
